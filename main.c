@@ -42,6 +42,7 @@ int main()
 		    menuPrint();
 		    break;
 		default:
+			icodb_destroy();
 		    return 0;	    
 	    }
 	}

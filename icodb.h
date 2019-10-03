@@ -31,8 +31,7 @@
 #define ERR_OPEN_DB				3
 #define ERR_ALLOC				4
 #define ERR_TOO_MANY_USERS		5
-#define ERR_EMPTY_DB			6
-#define ERR_READ_DB				7
+#define ERR_READ_DB				6
 
 
 /**

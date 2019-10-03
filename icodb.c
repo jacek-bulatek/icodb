@@ -27,7 +27,6 @@ typedef struct sharedMemory								// used for all data stored on HD
     pthread_mutexattr_t dbAttr;							// its attributes
     pthread_mutex_t		shmMutex;						// shared mutex for shared memory synchronization
     pthread_mutexattr_t shmAttr;						// its attributes
-    char				changedRecords[RECORDS_NO];		// array of changed records set up on save char type choosed since it meets current demand
     pid_t				pids[MAX_USERS];				// list of pid numbers of processes currently using DB
 }sharedMemory;
 
@@ -72,7 +71,7 @@ int icodb_read(int mode)
             }
         }
         break;
-        case READ_CHANGED:                                                  // READ_CHANGED is actually equal to SIGINT
+        case READ_CHANGED:
         {
             int			fd;
             int			read_bytes = 0;
@@ -136,12 +135,7 @@ int icodb_save()
     write(fd, &local_db, sizeof(local_db));
 
     pthread_mutex_lock(&(shmptr->shmMutex));
-    memset(shmptr->changedRecords, 0, RECORDS_NO);
 
-    //for(int i = 0; i < RECORDS_NO; i++)
-      //  temp_changed_records |= (local_db.records[i] == last_read_db.records[i] ? 0 : 1) << i;
-
-    //shmptr->changedRecords = temp_changed_records;                          // Set flags for changed records
     for(int i = 0; i < MAX_USERS; i++)
     {
         if(shmptr->pids[i] != getpid() && shmptr->pids[i] != 0)
@@ -212,14 +206,6 @@ int icodb_init()
 	printf("pthread_init: %d\n", pthread_mutex_init(&(shmptr->shmMutex), &(shmptr->shmAttr)));
 
 shm_inited:
-    // allocate memory for local_db
-    /*if(((local_db.records = malloc(sizeof(int)*RECORDS_NO)) == NULL) || ((last_read_db.records = malloc(sizeof(int)*RECORDS_NO)) == NULL))
-    {
-        destroyLocalDB();
-        dbInitRC = LOCAL_DB_ALLOC_FAIL;
-	return;
-    }*/
-
     // check if user limit isn't reached
 	pthread_mutex_lock(&(shmptr->shmMutex));
 	shmctl(shmId, IPC_STAT, shmDsPtr);
@@ -258,24 +244,24 @@ shm_inited:
 		icodb_destroy();
 		return ERR_OPEN_DB;
 	}
-
-    if ((i = read(fd, &local_db, sizeof(localDB_t)))== 0)
-    {
-    	icodb_destroy();
-    	return ERR_EMPTY_DB;
-    }
-    else if (i < 0)
-    {
-    	icodb_destroy();
-		return ERR_READ_DB;
-    }
     else
     {
-        for (int j = i; i != 0; i = read(fd, (char*)&(local_db)+j, sizeof(localDB_t)), j+=i);
+        int read_bytes = 0;
+
+        do
+        {
+        	read_bytes += read(fd, ((void *) &local_db) + read_bytes, sizeof(localDB_t) - read_bytes);
+        } while (sizeof(localDB_t) - read_bytes > 0);
+
+        close(fd);
+        for (int i = 0; i < RECORDS_NO; i++)
+        {
+        	local_db.records[i].modified = 0;
+        }
     }
-    close(fd);
+
     pthread_mutex_unlock(&(shmptr->dbMutex));
-    signal(SIGUSR1, sigusrHandler);                                           // readSharedDB will handle the 'changed' read notification
+    signal(SIGUSR1, sigusrHandler);
 
     // register for release of resources at exit
     //atexit(icodb_destroy);
@@ -305,6 +291,7 @@ void icodb_destroy()
     }
     else
     {
+    	free(shmDsPtr);
         pthread_mutex_unlock(&(shmptr->shmMutex));
         shmdt(shmptr);
         shmptr=0;
